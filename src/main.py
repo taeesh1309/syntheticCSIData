@@ -8,7 +8,7 @@ from communication_models.traffic_model import TrafficGenerator
 # TODO: These parameters we can take from a YAML file as per Dr. Nareen's requirements.
 Nt = 64                           # Number of transmit antennas
 Nr = 4                            # Number of receive antennas
-f_c = 6e9                         # Carrier frequency in Hz (6 GHz)
+f_c = 5e9                         # Carrier frequency in Hz (5 GHz)
 N_clusters = 5                    # Number of clusters
 L_path = 3                        # Number of paths per cluster
 t_instances = 100                 # Number of time instances

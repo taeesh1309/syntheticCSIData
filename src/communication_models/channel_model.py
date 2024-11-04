@@ -17,7 +17,7 @@ Classes:
 
 Usage:
 ------
-	csi_generator = CSIDataGenerator(Nt=64, Nr=4, f_c=6e9, N_clusters=5, L_path=3)
+	csi_generator = CSIDataGenerator(Nt=64, Nr=4, f_c=5e9, N_clusters=5, L_path=3)
 	csi_data = csi_generator.generate_CSI_data(timestamps, subcarriers)
 
 Dependencies:
