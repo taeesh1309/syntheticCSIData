@@ -1,0 +1,42 @@
+# Massive MIMO OFDMA 5G RAN Slicing Configuration Parameters
+# ==========================================================
+# These parameters configure the environment for generating synthetic CSI data
+# for a 5G New Radio system with RAN slicing, massive MIMO, and time-division duplexing (TDD).
+
+Nt: 64                           # Number of transmit antennas (e.g., at the base station in a massive MIMO setup).
+Nr: 4                            # Number of receive antennas (e.g., at each user equipment or UE).
+f_c: 5e9                         # Carrier frequency in Hz; here, 5 GHz is chosen, a common frequency in 5G NR.
+N_clusters: 5                    # Number of multipath clusters; represents different paths taken by signals due to reflections and scattering.
+L_path: 3                        # Number of paths (rays) within each cluster; adds complexity by simulating sub-paths within each cluster.
+DL_TDD: 6                        # Downlink TDD time slot duration in milliseconds, as configured by the network operator.
+UL_TDD: 2                        # Uplink TDD time slot duration in milliseconds, representing time slots used for uplink data.
+
+channel_bandwidth: 100000000     # Total channel bandwidth in Hz (e.g., 100 MHz)
+
+# Slice Configuration
+# ----------------------------------------------------------
+# Configuration of RAN slices that will use different bandwidths and carrier frequencies
+# to support various types of services with different requirements.
+
+slice_bandwidths: [10000000, 15000000]          # Bandwidth allocated to each slice in Hz (10 MHz and 15 MHz).
+slice_carrier_frequencies: [3500000000, 4500000000]  # Carrier frequencies for each slice in Hz (3.5 GHz and 4.5 GHz).
+
+shadowing_std_dev: 8             # Standard deviation in dB for shadow fading; models random variations in signal strength.
+
+subcarriers: 1                   # Number of subcarrier frequencies; for simplicity, using one here, but real scenarios may have multiple.
+
+# Time Configuration
+# ----------------------------------------------------------
+# Defines the duration and number of time samples for the simulation. These timestamps
+# represent the time instances at which CSI data will be generated.
+
+start_time: '2024-11-03 08:00:00' # Start time of the simulation, in ISO format (YYYY-MM-DD HH:MM:SS).
+end_time: '2024-11-03 08:00:01'   # End time of the simulation, indicating when data collection should stop.
+interval_seconds: 0.002           # Interval in seconds between each timestamp
+
+# Notes:
+# - DL_TDD and UL_TDD control the downlink and uplink time ratios, critical in TDD-based systems.
+# - slice_bandwidths and slice_carrier_frequencies control the network slices, ensuring that each slice
+#   remains within the overall system bandwidth and is configured based on service requirements.
+# - start_time and end_time, along with t_instances, allow the user to customize the time range for
+#   data collection, helping simulate different traffic and movement patterns over time.
