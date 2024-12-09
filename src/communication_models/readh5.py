@@ -37,10 +37,12 @@ def extract_and_save_csi_to_csv(file_path, output_csv):
                         end_idx = (i + 1) * rows_per_group
 
                         for j in range(start_idx, end_idx):
-                            writer.writerow([
-                                hdl[i], ch[i], frame[i], bin_data[i],
-                                real_parts[j], imaginary_parts[j]
-                            ])
+                            if real_parts[j] != 0 and imaginary_parts[j] != 0:
+                                # Write the data to the CSV file
+                                writer.writerow([
+                                    hdl[i], ch[i], frame[i], bin_data[i],
+                                    real_parts[j], imaginary_parts[j]
+                                ])
                 
                 print(f"Data successfully written to {output_csv}")
 
@@ -49,7 +51,7 @@ def extract_and_save_csi_to_csv(file_path, output_csv):
 
 # Define file paths
 input_file_path = 'csi_563000000.0_6000000.0_06_26_2023_15_18_40.h5'
-output_csv_path = 'csi_output.csv'
+output_csv_path = 'csi_output1.csv'
 
 # Process and save data to CSV
 extract_and_save_csi_to_csv(input_file_path, output_csv_path)
