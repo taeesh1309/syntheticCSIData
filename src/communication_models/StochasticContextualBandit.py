@@ -1,15 +1,35 @@
 from vowpalwabbit import pyvw  ## install using pip install vowpalwabbit
 import numpy as np
 import pandas as pd
+import os
 
 class StochasticContextualBandit:
-    def __init__(self, vw_options="--cb_explore_adf --quiet"):
+    def __init__(self, vw_options="--cb_explore_adf --quiet", model_file=None):
         """
         Initialize the Vowpal Wabbit workspace for contextual bandit training.
 
         :param vw_options: VW options for contextual bandit training.
+        :param model_file: Path to an existing model file to load, if any.
         """
+        if model_file:
+            vw_options += f" --initial_regressor {model_file}"
         self.vw = pyvw.Workspace(vw_options)
+        self.model_file = model_file
+        
+    def save_model(self, save_path):
+        """
+        Save the trained model to a file.
+
+        :param save_path: Path where the model will be saved.
+        """
+        self.vw.save(save_path)
+        self.model_file = save_path
+
+    def close(self):
+        """
+        Clean up the Vowpal Wabbit workspace.
+        """
+        self.vw.finish()
 
     def train(self, training_data):
         """
@@ -72,7 +92,7 @@ class StochasticContextualBandit:
         training_data = []
 
         for _, row in df.iterrows():
-            context = f"{row['numerology_pattern']} {row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['azimuth']} {row['distance_to_base_station']}"
+            context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
             actions = [(idx + 1, row[f"I_{idx + 1}"], row[f"Q_{idx + 1}"]) for idx in range(int(row['number_of_actions']))]
             training_data.append({"context": context, "actions": actions})
 
@@ -89,14 +109,23 @@ def main():
     """
     Main function to demonstrate training and prediction using the stochastic contextual bandit model.
     """
+    
+    model_path = "cb_model.vw"
+
     # Initialize the bandit model
-    bandit_model = StochasticContextualBandit()
+    bandit_model = StochasticContextualBandit(model_file=model_path if os.path.exists(model_path) else None)
 
-    # Load training data from CSV
-    training_data = bandit_model.load_csi_data("csi_data.csv")
+    # If model does not exist, train the model
+    if not os.path.exists(model_path):
+        # Load training data from CSV
+        training_data = bandit_model.load_csi_data("csi_data.csv")
 
-    # Train the model
-    bandit_model.train(training_data)
+        # Train the model
+        bandit_model.train(training_data)
+
+        # Save the model to a file
+        bandit_model.save_model(model_path)
+        print(f"Model saved to {model_path}")
 
     # Test data (context for prediction)
     test_context = "2 UCA 32 8 900MHz 0.25 bad_urban 30 300"
