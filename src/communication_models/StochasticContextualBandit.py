@@ -1,6 +1,6 @@
 ###################################################################################
 ################################## AHMED AREDAH ###################################
-########### It is preferable to use UBUNTU with C++ developing toolchain ##########
+######## It is preferable to use UBUNTU/macos with C++ developing toolchain #######
 ############ vowpalwabbit can be installed using the below pip command ############
 ######################## pip install vowpalwabbit #################################
 ###################################################################################
