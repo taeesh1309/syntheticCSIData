@@ -1,4 +1,11 @@
-from vowpalwabbit import pyvw  ## install using pip install vowpalwabbit
+###################################################################################
+################################## AHMED AREDAH ###################################
+########### It is preferable to use UBUNTU with C++ developing toolchain ##########
+############ vowpalwabbit can be installed using the below pip command ############
+######################## pip install vowpalwabbit #################################
+###################################################################################
+
+from vowpalwabbit import pyvw
 import numpy as np
 import pandas as pd
 import os
