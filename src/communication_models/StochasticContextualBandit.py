@@ -118,7 +118,6 @@ def load_csi_data(file_path, target, start_action_id=1):
     return training_data, current_action_id
 
 
-# Example Usage
 def main():
     """
     Main function to demonstrate training and prediction using the stochastic contextual bandit model.
@@ -135,21 +134,27 @@ def main():
     action_id = 1
     # Train the models if they don't already exist
     if not os.path.exists(i_model_path) or not os.path.exists(q_model_path):
-        # Load training data
-        i_training_data, action_id = load_csi_data("csi_data.csv", target="I", start_action_id=action_id)
-        q_training_data, action_id = load_csi_data("csi_data.csv", target="Q", start_action_id=action_id)
+        # Iterate through all files
+        for part_num in range(1, 193):  # 1 to 192
+            file_path = f"combined_csi_results_part_{part_num}.csv"
+            if os.path.exists(file_path):
+                print(f"Processing {file_path}...")
 
-        # Train the I model
-        if not os.path.exists(i_model_path):
-            i_bandit_model.train(i_training_data, target="I")
-            i_bandit_model.save_model(i_model_path)
-            print(f"I model saved to {i_model_path}")
+                # Load training data for I
+                i_training_data, action_id = load_csi_data(file_path, target="I", start_action_id=action_id)
+                # Train the I model
+                i_bandit_model.train(i_training_data, target="I")
 
-        # Train the Q model
-        if not os.path.exists(q_model_path):
-            q_bandit_model.train(q_training_data, target="Q")
-            q_bandit_model.save_model(q_model_path)
-            print(f"Q model saved to {q_model_path}")
+                # Load training data for Q
+                q_training_data, action_id = load_csi_data(file_path, target="Q", start_action_id=action_id)
+                # Train the Q model
+                q_bandit_model.train(q_training_data, target="Q")
+
+        # Save the trained models
+        i_bandit_model.save_model(i_model_path)
+        print(f"I model saved to {i_model_path}")
+        q_bandit_model.save_model(q_model_path)
+        print(f"Q model saved to {q_model_path}")
 
     # Test data (context for prediction)
     test_context = "2 UCA 32 8 900MHz 0.25 bad_urban 30 300"
