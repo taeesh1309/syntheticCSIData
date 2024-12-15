@@ -1,14 +1,13 @@
 ###################################################################################
-################################## AHMED AREDAH ###################################
-######## It is preferable to use UBUNTU/macos with C++ developing toolchain #######
+######## It is preferable to use Ubuntu/macos with C++ developing toolchain #######
 ############ vowpalwabbit can be installed using the below pip command ############
 ######################## pip install vowpalwabbit #################################
 ###################################################################################
 
 from vowpalwabbit import pyvw
-import numpy as np
 import pandas as pd
 import os
+
 
 class StochasticContextualBandit:
     def __init__(self, vw_options="--cb_explore_adf --quiet", model_file=None):
@@ -38,13 +37,14 @@ class StochasticContextualBandit:
         """
         self.vw.finish()
 
-    def train(self, training_data):
+    def train(self, training_data, target):
         """
         Train the model using contextual bandit training data.
 
         :param training_data: List of training samples, where each sample is a dictionary
                               containing 'context' (str) and 'actions' (list of tuples).
-                              Each action tuple is (action_id, I, Q).
+                              Each action tuple is (action_id, target_value, reward).
+        :param target: Either 'I' or 'Q' to train for the respective value.
         """
         for data in training_data:
             context = data["context"]
@@ -52,103 +52,119 @@ class StochasticContextualBandit:
 
             # Construct VW training data
             vw_data = f"shared | {context}\n"
-            for action_id, I, Q in actions:
-                reward = 1.0  # Assign equal reward since rewards are not provided
-                vw_data += f"{action_id}:{reward} | I:{I} Q:{Q}\n"
+            for action_id, reward, value in actions:
+                vw_data += f"{action_id}:{reward} | {target}:{value}\n"
 
             # Train VW
             self.vw.learn(vw_data)
 
-    def predict(self, context, base_station_antennas, user_equipment_antennas, active_users, time_samples):
+    def predict(self, context, actions, target):
         """
-        Predict the best I and Q values given a context.
+        Predict the best target value (I or Q) given a context.
 
         :param context: Contextual features as a string.
-        :param base_station_antennas: Number of antennas at the base station.
-        :param user_equipment_antennas: Number of antennas at the user equipment.
-        :param active_users: Number of active users.
-        :param time_samples: Number of time samples (frames).
-        :return: A list of predicted (I, Q) tuples.
+        :param actions: A list of actions with placeholders for the target value.
+        :param target: Either 'I' or 'Q' to predict for the respective value.
+        :return: The predicted target value.
         """
-        # Calculate the number of predictions required
-        num_predictions = base_station_antennas * user_equipment_antennas * active_users * time_samples
-
         vw_test_data = f"shared | {context}\n"
+        for action_id, value in actions:
+            vw_test_data += f"{action_id}:0 | {target}:{value}\n"
 
-        # Generate placeholder actions for prediction
-        for i in range(1, num_predictions + 1):
-            vw_test_data += f"{i}:0 | \n"
+        # Predict the best action ID
+        best_action_id = self.vw.predict(vw_test_data)
 
-        # Predict the best action(s)
-        prediction = self.vw.predict(vw_test_data)
+        # Retrieve the predicted target value for the best action
+        for action_id, value in actions:
+            if action_id == best_action_id:
+                return value
 
-        # Decode predictions into I, Q values (placeholders since VW does not directly output I, Q values)
-        predicted_values = []
-        for action in range(1, num_predictions + 1):
-            predicted_values.append((0.0, 0.0))  # Placeholder for predicted I, Q values
-        return predicted_values
+        return None
 
-    def load_csi_data(self, file_path):
-        """
-        Load CSI data from a CSV file and format it for training.
 
-        :param file_path: Path to the CSV file containing CSI data.
-        :return: List of training samples formatted for the train method.
-        """
-        df = pd.read_csv(file_path)
-        training_data = []
+def load_csi_data(file_path, target, start_action_id=1):
+    """
+    Load CSI data from a CSV file and format it for training, ensuring unique action IDs.
 
-        for _, row in df.iterrows():
-            context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
-            actions = [(idx + 1, row[f"I_{idx + 1}"], row[f"Q_{idx + 1}"]) for idx in range(int(row['number_of_actions']))]
-            training_data.append({"context": context, "actions": actions})
+    :param file_path: Path to the CSV file containing CSI data.
+    :param target: Either 'I' or 'Q', specifying the target to train for.
+    :param start_action_id: The starting value for action IDs to ensure uniqueness.
+    :return: List of training samples formatted for the train method and the next available action ID.
+    """
+    df = pd.read_csv(file_path)
+    training_data = []
+    current_action_id = start_action_id  # Initialize action ID counter
 
-        return training_data
+    for _, row in df.iterrows():
+        context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
+        if target == "I":
+            value = row["real"]
+        elif target == "Q":
+            value = row["imag"]
+        else:
+            raise ValueError("Target must be 'I' or 'Q'.")
 
-    def close(self):
-        """
-        Clean up the Vowpal Wabbit workspace.
-        """
-        self.vw.finish()
+        # Create a single action with a unique action ID
+        actions = [
+            (
+                current_action_id,  # Unique action ID
+                row['SNR'],         # Reward
+                value               # Target value (I or Q)
+            )
+        ]
+        current_action_id += 1
+        training_data.append({"context": context, "actions": actions})
+
+    return training_data, current_action_id
+
 
 # Example Usage
 def main():
     """
     Main function to demonstrate training and prediction using the stochastic contextual bandit model.
     """
-    
-    model_path = "cb_model.vw"
 
-    # Initialize the bandit model
-    bandit_model = StochasticContextualBandit(model_file=model_path if os.path.exists(model_path) else None)
+    # Model paths for I and Q
+    i_model_path = "cb_model_I.vw"
+    q_model_path = "cb_model_Q.vw"
 
-    # If model does not exist, train the model
-    if not os.path.exists(model_path):
-        # Load training data from CSV
-        training_data = bandit_model.load_csi_data("csi_data.csv")
+    # Initialize models
+    i_bandit_model = StochasticContextualBandit(model_file=i_model_path if os.path.exists(i_model_path) else None)
+    q_bandit_model = StochasticContextualBandit(model_file=q_model_path if os.path.exists(q_model_path) else None)
 
-        # Train the model
-        bandit_model.train(training_data)
+    action_id = 1
+    # Train the models if they don't already exist
+    if not os.path.exists(i_model_path) or not os.path.exists(q_model_path):
+        # Load training data
+        i_training_data, action_id = load_csi_data("csi_data.csv", target="I", start_action_id=action_id)
+        q_training_data, action_id = load_csi_data("csi_data.csv", target="Q", start_action_id=action_id)
 
-        # Save the model to a file
-        bandit_model.save_model(model_path)
-        print(f"Model saved to {model_path}")
+        # Train the I model
+        if not os.path.exists(i_model_path):
+            i_bandit_model.train(i_training_data, target="I")
+            i_bandit_model.save_model(i_model_path)
+            print(f"I model saved to {i_model_path}")
+
+        # Train the Q model
+        if not os.path.exists(q_model_path):
+            q_bandit_model.train(q_training_data, target="Q")
+            q_bandit_model.save_model(q_model_path)
+            print(f"Q model saved to {q_model_path}")
 
     # Test data (context for prediction)
     test_context = "2 UCA 32 8 900MHz 0.25 bad_urban 30 300"
+    actions = [(1, 0.0)]  # Dummy actions for prediction
 
-    # Predict the best I and Q values
-    predicted_values = bandit_model.predict(
-        test_context,
-        base_station_antennas=32,
-        user_equipment_antennas=8,
-        active_users=10,
-        time_samples=5
-    )
-    print(f"Predicted I and Q values: {predicted_values}")
+    # Predict I and Q
+    predicted_i = i_bandit_model.predict(test_context, actions, target="I")
+    predicted_q = q_bandit_model.predict(test_context, actions, target="Q")
+
+    print(f"Predicted I: {predicted_i}, Predicted Q: {predicted_q}")
 
     # Clean up
-    bandit_model.close()
+    i_bandit_model.close()
+    q_bandit_model.close()
+
 
 if __name__ == "__main__":
     main()
