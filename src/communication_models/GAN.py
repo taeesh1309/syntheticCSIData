@@ -1,37 +1,32 @@
 import os
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
-import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 
-# File paths
-data_path = "src/communication_models/data"
-csv_files = [
-    os.path.join(data_path, f"combined_csi_results_part_{i}.csv") for i in range(1, 193)
-]
 
-# Custom dataset
+# ============================== Dataset Class ==============================
 class CSIDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
-        self.encoder = OneHotEncoder(sparse_output=False)  # Initialize OneHotEncoder
-        self.scaler = MinMaxScaler()  # Initialize MinMaxScaler
+        self.encoder = OneHotEncoder(sparse_output=False)
+        self.scaler = MinMaxScaler()
         self.data, self.targets = self.load_and_preprocess()
 
     def load_and_preprocess(self):
-        # Combine multiple CSVs into one DataFrame
+        # Combine multiple CSV files into one DataFrame
         dataframes = [pd.read_csv(file) for file in self.file_paths]
         df = pd.concat(dataframes, ignore_index=True)
 
-        # Separate features and target (I and Q values)
-        X = df.drop(columns=["real", "imag", "SNR"]) 
-        Y = df[["real", "imag"]]  # Target (CSI values)
+        # Separate features and targets
+        X = df.drop(columns=["real", "imag", "SNR"])
+        Y = df[["real", "imag"]]
 
         # Identify categorical and numerical columns
-        categorical_columns = ["antenna_geometry", "scenario"]  # Adjust based on dataset
+        categorical_columns = ["antenna_geometry", "scenario"]
         numerical_columns = X.columns.difference(categorical_columns)
 
         # One-hot encode categorical features
@@ -40,10 +35,13 @@ class CSIDataset(Dataset):
         # Normalize numerical features
         numerical_data = self.scaler.fit_transform(X[numerical_columns])
 
-        # Combine processed categorical and numerical features
+        # Combine processed features
         processed_X = np.hstack((categorical_data, numerical_data))
 
-        return torch.tensor(processed_X, dtype=torch.float32), torch.tensor(Y.values, dtype=torch.float32)
+        return (
+            torch.tensor(processed_X, dtype=torch.float32),
+            torch.tensor(Y.values, dtype=torch.float32),
+        )
 
     def __len__(self):
         return len(self.data)
@@ -51,12 +49,8 @@ class CSIDataset(Dataset):
     def __getitem__(self, idx):
         return self.data[idx], self.targets[idx]
 
-# Initialize dataset and dataloader
-batch_size = 64
-dataset = CSIDataset(csv_files)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-# Define the Generator model
+# ============================== Model Classes ==============================
 class Generator(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(Generator, self).__init__()
@@ -65,13 +59,13 @@ class Generator(nn.Module):
             nn.ReLU(),
             nn.Linear(128, 256),
             nn.ReLU(),
-            nn.Linear(256, output_dim)
+            nn.Linear(256, output_dim),
         )
 
     def forward(self, x):
         return self.model(x)
 
-# Define the Discriminator model
+
 class Discriminator(nn.Module):
     def __init__(self, input_dim):
         super(Discriminator, self).__init__()
@@ -81,61 +75,144 @@ class Discriminator(nn.Module):
             nn.Linear(256, 128),
             nn.LeakyReLU(0.2),
             nn.Linear(128, 1),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
         return self.model(x)
 
-# Hyperparameters
-input_dim = dataset[0][0].shape[0]  # Feature size after preprocessing
-output_dim = 2  # CSI (I and Q values)
-epochs = 500
-lr = 0.0002
 
-# Initialize models and optimizers
-generator = Generator(input_dim, output_dim)
-discriminator = Discriminator(input_dim + output_dim)
-optimizer_G = optim.Adam(generator.parameters(), lr=lr)
-optimizer_D = optim.Adam(discriminator.parameters(), lr=lr)
-adversarial_loss = nn.BCELoss()
+# ============================== Utility Functions ==============================
+def preprocess_test_data(file_path, encoder, scaler):
+    """
+    Preprocess test dataset using the encoder and scaler from training.
+    """
+    df = pd.read_csv(file_path)
 
-# Training loop
-for epoch in range(epochs):
-    for batch_idx, (data, target) in enumerate(dataloader):
-        batch_size = data.size(0)
+    # Separate features and targets
+    X = df.drop(columns=["real", "imag", "SNR"])
+    Y = df[["real", "imag"]]
 
-        # Real data
-        real_data = torch.cat((data, target), dim=1)
-        real_labels = torch.ones((batch_size, 1))
+    # Identify categorical and numerical columns
+    categorical_columns = ["antenna_geometry", "scenario"]
+    numerical_columns = X.columns.difference(categorical_columns)
 
-        # Fake data
-        fake_target = generator(data)
-        fake_data = torch.cat((data, fake_target), dim=1)
-        fake_labels = torch.zeros((batch_size, 1))
+    # One-hot encode categorical features
+    categorical_data = encoder.transform(X[categorical_columns])
 
-        # Train Discriminator
-        optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(real_data), real_labels)
-        fake_loss = adversarial_loss(discriminator(fake_data.detach()), fake_labels)
-        d_loss = real_loss + fake_loss
-        d_loss.backward()
-        optimizer_D.step()
+    # Normalize numerical features
+    numerical_data = scaler.transform(X[numerical_columns])
 
-        # Train Generator
-        optimizer_G.zero_grad()
-        g_loss = adversarial_loss(discriminator(fake_data), real_labels)
-        g_loss.backward()
-        optimizer_G.step()
+    # Combine processed features
+    processed_X = np.hstack((categorical_data, numerical_data))
 
-    print(f"Epoch {epoch+1}/{epochs}, D Loss: {d_loss.item()}, G Loss: {g_loss.item()}")
+    return (
+        torch.tensor(processed_X, dtype=torch.float32),
+        torch.tensor(Y.values, dtype=torch.float32),
+    )
 
-# Save the trained generator model
-torch.save(generator.state_dict(), "generator.pth")
 
-# Testing the generator
-generator.eval()
-with torch.no_grad():
-    test_features = torch.tensor([...], dtype=torch.float32)  # Replace with test input
-    predicted_csi = generator(test_features)
-    print("Predicted CSI (I, Q):", predicted_csi)
+def save_model(generator, discriminator, optimizer_G, optimizer_D, path):
+    torch.save(
+        {
+            "generator_state_dict": generator.state_dict(),
+            "discriminator_state_dict": discriminator.state_dict(),
+            "optimizer_G_state_dict": optimizer_G.state_dict(),
+            "optimizer_D_state_dict": optimizer_D.state_dict(),
+        },
+        path,
+    )
+    print("Model saved to", path)
+
+
+def load_model(generator, discriminator, optimizer_G, optimizer_D, path):
+    checkpoint = torch.load(path)
+    generator.load_state_dict(checkpoint["generator_state_dict"])
+    discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+    optimizer_G.load_state_dict(checkpoint["optimizer_G_state_dict"])
+    optimizer_D.load_state_dict(checkpoint["optimizer_D_state_dict"])
+    print("Model loaded from", path)
+
+
+# ============================== Training Function ==============================
+def train_gan(generator, discriminator, dataloader, optimizer_G, optimizer_D, epochs, loss_fn, model_path):
+    for epoch in range(epochs):
+        for batch_idx, (data, target) in enumerate(dataloader):
+            batch_size = data.size(0)
+
+            # Real data
+            real_data = torch.cat((data, target), dim=1)
+            real_labels = torch.ones((batch_size, 1))
+
+            # Fake data
+            fake_target = generator(data)
+            fake_data = torch.cat((data, fake_target), dim=1)
+            fake_labels = torch.zeros((batch_size, 1))
+
+            # Train Discriminator
+            optimizer_D.zero_grad()
+            real_loss = loss_fn(discriminator(real_data), real_labels)
+            fake_loss = loss_fn(discriminator(fake_data.detach()), fake_labels)
+            d_loss = real_loss + fake_loss
+            d_loss.backward()
+            optimizer_D.step()
+
+            # Train Generator
+            optimizer_G.zero_grad()
+            g_loss = loss_fn(discriminator(fake_data), real_labels)
+            g_loss.backward()
+            optimizer_G.step()
+
+        print(f"Epoch {epoch+1}/{epochs}, D Loss: {d_loss.item()}, G Loss: {g_loss.item()}")
+
+    save_model(generator, discriminator, optimizer_G, optimizer_D, model_path)
+
+
+# ============================== Main Script ==============================
+def main():
+    # File paths
+    data_path = "src/communication_models/data"
+    test_file_path = "src/communication_models/test_combined_csi_results.csv"
+    model_path = "gan_model.pth"
+
+    # Dataset and Dataloader
+    csv_files = [
+        os.path.join(data_path, f"combined_csi_results_part_{i}.csv") for i in range(1, 193)
+    ]
+    dataset = CSIDataset(csv_files)
+    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+
+    # Model Initialization
+    input_dim = dataset[0][0].shape[0]
+    output_dim = 2
+    generator = Generator(input_dim, output_dim)
+    discriminator = Discriminator(input_dim + output_dim)
+    optimizer_G = optim.Adam(generator.parameters(), lr=0.0002)
+    optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002)
+    loss_fn = nn.BCELoss()
+
+    # Training or Loading the Model
+    if os.path.exists(model_path):
+        load_model(generator, discriminator, optimizer_G, optimizer_D, model_path)
+    else:
+        train_gan(generator, discriminator, dataloader, optimizer_G, optimizer_D, epochs=500, loss_fn=loss_fn, model_path=model_path)
+
+    # Testing the Model
+    generator.eval()
+    with torch.no_grad():
+        test_data, test_targets = preprocess_test_data(
+            test_file_path, dataset.encoder, dataset.scaler
+        )
+        predicted_csi = generator(test_data)
+
+    # Evaluation
+    mse = np.mean((predicted_csi.numpy() - test_targets.numpy()) ** 2)
+    print(f"Mean Squared Error (MSE) on Test Data: {mse}")
+
+    print("\nSample Predictions vs Actual Values:")
+    for i in range(5):
+        print(f"Predicted: {predicted_csi[i].numpy()}, Actual: {test_targets[i].numpy()}")
+
+
+if __name__ == "__main__":
+    main()
