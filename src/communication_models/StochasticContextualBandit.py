@@ -5,6 +5,14 @@
 ###################################################################################
 
 from vowpalwabbit import pyvw
+import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    explained_variance_score
+)
+from scipy.stats import pearsonr
 import pandas as pd
 import os
 
@@ -117,6 +125,108 @@ def load_csi_data(file_path, target, start_action_id=1):
 
     return training_data, current_action_id
 
+def test_model(i_model, q_model, test_file):
+    """
+    Test the trained models on a test dataset and evaluate performance.
+
+    :param i_model: The trained model for predicting I.
+    :param q_model: The trained model for predicting Q.
+    :param test_file: Path to the test data CSV file.
+    :return: A dictionary containing evaluation metrics for I and Q.
+    """
+    # Load the test data
+    df = pd.read_csv(test_file)
+    true_values_i = []
+    true_values_q = []
+    predicted_values_i = []
+    predicted_values_q = []
+
+    # Iterate through each row in the test dataset
+    for _, row in df.iterrows():
+        # Prepare the context
+        context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
+
+        # True values
+        true_i = row["real"]
+        true_q = row["imag"]
+        true_values_i.append(true_i)
+        true_values_q.append(true_q)
+
+        # Dummy actions for prediction (use action ID 1)
+        actions = [(1, 0.0)]
+
+        # Predict I and Q
+        predicted_i = i_model.predict(context, actions, target="I")
+        predicted_q = q_model.predict(context, actions, target="Q")
+        predicted_values_i.append(predicted_i)
+        predicted_values_q.append(predicted_q)
+
+    # Calculate evaluation metrics
+    metrics = {
+        "I": {
+            "MAE": mean_absolute_error(true_values_i, predicted_values_i),
+            "MSE": mean_squared_error(true_values_i, predicted_values_i),
+            "R2": r2_score(true_values_i, predicted_values_i),
+            "Explained Variance": explained_variance_score(true_values_i, predicted_values_i),
+            "Pearson Correlation": pearsonr(true_values_i, predicted_values_i)[0],
+        },
+        "Q": {
+            "MAE": mean_absolute_error(true_values_q, predicted_values_q),
+            "MSE": mean_squared_error(true_values_q, predicted_values_q),
+            "R2": r2_score(true_values_q, predicted_values_q),
+            "Explained Variance": explained_variance_score(true_values_q, predicted_values_q),
+            "Pearson Correlation": pearsonr(true_values_q, predicted_values_q)[0],
+        },
+    }
+
+    # Generate plots
+    generate_plots(true_values_i, predicted_values_i, "I")
+    generate_plots(true_values_q, predicted_values_q, "Q")
+
+    return metrics
+
+
+def generate_plots(true_values, predicted_values, target):
+    """
+    Generate evaluation plots for the target variable.
+
+    :param true_values: List of true values.
+    :param predicted_values: List of predicted values.
+    :param target: Target variable ('I' or 'Q').
+    """
+    residuals = [true - pred for true, pred in zip(true_values, predicted_values)]
+
+    # True vs. Predicted Plot
+    plt.figure(figsize=(6, 6))
+    plt.scatter(true_values, predicted_values, alpha=0.5)
+    plt.plot([min(true_values), max(true_values)], [min(true_values), max(true_values)], 'r--')
+    plt.title(f"True vs. Predicted ({target})")
+    plt.xlabel("True Values")
+    plt.ylabel("Predicted Values")
+    plt.grid()
+    plt.savefig(f"true_vs_predicted_{target}.png")
+    plt.show()
+
+    # Residuals Plot
+    plt.figure(figsize=(6, 6))
+    plt.scatter(predicted_values, residuals, alpha=0.5)
+    plt.axhline(0, color='r', linestyle='--')
+    plt.title(f"Residuals Plot ({target})")
+    plt.xlabel("Predicted Values")
+    plt.ylabel("Residuals")
+    plt.grid()
+    plt.savefig(f"residuals_{target}.png")
+    plt.show()
+
+    # Error Distribution (Histogram)
+    plt.figure(figsize=(6, 6))
+    plt.hist(residuals, bins=30, alpha=0.7)
+    plt.title(f"Residuals Histogram ({target})")
+    plt.xlabel("Residual")
+    plt.ylabel("Frequency")
+    plt.grid()
+    plt.savefig(f"error_distribution_{target}.png")
+    plt.show()
 
 def main():
     """
@@ -136,7 +246,7 @@ def main():
     if not os.path.exists(i_model_path) or not os.path.exists(q_model_path):
         # Iterate through all files
         for part_num in range(1, 193):  # 1 to 192
-            file_path = f"combined_csi_results_part_{part_num}.csv"
+            file_path = f"src/communication_models/data/combined_csi_results_part_{part_num}.csv"
             if os.path.exists(file_path):
                 print(f"Processing {file_path}...")
 
@@ -156,15 +266,16 @@ def main():
         q_bandit_model.save_model(q_model_path)
         print(f"Q model saved to {q_model_path}")
 
-    # Test data (context for prediction)
-    test_context = "2 UCA 32 8 900MHz 0.25 bad_urban 30 300"
-    actions = [(1, 0.0)]  # Dummy actions for prediction
+    # Test the models
+    test_file = "src/communication_models/testbed_data.csv"
+    metrics = test_model(i_bandit_model, q_bandit_model, test_file)
 
-    # Predict I and Q
-    predicted_i = i_bandit_model.predict(test_context, actions, target="I")
-    predicted_q = q_bandit_model.predict(test_context, actions, target="Q")
-
-    print(f"Predicted I: {predicted_i}, Predicted Q: {predicted_q}")
+    # Print metrics
+    print("Test Results:")
+    for target in ["I", "Q"]:
+        print(f"{target}:")
+        for metric, value in metrics[target].items():
+            print(f"  {metric}: {value:.4f}")
 
     # Clean up
     i_bandit_model.close()
