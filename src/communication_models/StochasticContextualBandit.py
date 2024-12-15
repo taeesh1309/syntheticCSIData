@@ -50,18 +50,23 @@ class StochasticContextualBandit:
         Train the model using contextual bandit training data.
 
         :param training_data: List of training samples, where each sample is a dictionary
-                              containing 'context' (str) and 'actions' (list of tuples).
-                              Each action tuple is (action_id, target_value, reward).
+                            containing 'context' (str) and 'actions' (list of tuples).
+                            Each action tuple is (action_id, reward, target_value).
         :param target: Either 'I' or 'Q' to train for the respective value.
         """
         for data in training_data:
             context = data["context"]
             actions = data["actions"]
 
-            # Construct VW training data
+            # Start constructing the VW data block
             vw_data = f"shared | {context}\n"
-            for action_id, reward, value in actions:
-                vw_data += f"{action_id}:{reward} | {target}:{value}\n"
+
+            # Add the actions, with the first row including the reward
+            for idx, (action_id, reward, value) in enumerate(actions):
+                if idx == 0:  # Only the first action gets the reward (cost)
+                    vw_data += f"{action_id}:{-reward} | {target}:{value}\n"
+                else:  # Subsequent actions get no cost
+                    vw_data += f"{action_id} | {target}:{value}\n"
 
             # Train VW
             self.vw.learn(vw_data)
@@ -77,10 +82,16 @@ class StochasticContextualBandit:
         """
         vw_test_data = f"shared | {context}\n"
         for action_id, value in actions:
-            vw_test_data += f"{action_id}:0 | {target}:{value}\n"
+            vw_test_data += f"{action_id} | {target}:{value}\n"
 
-        # Predict the best action ID
-        best_action_id = self.vw.predict(vw_test_data)
+        # Predict scores for all actions
+        action_scores = self.vw.predict(vw_test_data)
+        print("Action scores:", action_scores)
+
+        # Find the action with the highest score
+        best_action_index = action_scores.index(max(action_scores))
+        best_action_id = actions[best_action_index][0]
+        print("best action ID: ", best_action_id)
 
         # Retrieve the predicted target value for the best action
         for action_id, value in actions:
@@ -92,7 +103,7 @@ class StochasticContextualBandit:
 
 def load_csi_data(file_path, target, start_action_id=1):
     """
-    Load CSI data from a CSV file and format it for training, ensuring unique action IDs.
+    Load CSI data from a CSV file and format it for training, grouping by distance_to_base_station.
 
     :param file_path: Path to the CSV file containing CSI data.
     :param target: Either 'I' or 'Q', specifying the target to train for.
@@ -103,25 +114,48 @@ def load_csi_data(file_path, target, start_action_id=1):
     training_data = []
     current_action_id = start_action_id  # Initialize action ID counter
 
-    for _, row in df.iterrows():
-        context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
-        if target == "I":
-            value = row["real"]
-        elif target == "Q":
-            value = row["imag"]
-        else:
-            raise ValueError("Target must be 'I' or 'Q'.")
+    # Group rows by `distance_to_base_station`
+    grouped = df.groupby('distance_to_base_station')
 
-        # Create a single action with a unique action ID
-        actions = [
-            (
-                current_action_id,  # Unique action ID
-                row['SNR'],         # Reward
-                value               # Target value (I or Q)
+    for distance, group in grouped:
+        try:
+            # Construct the context string (assuming shared context for the group)
+            context = (
+                f"distance_to_base_station:{distance} "
+                f"antenna_geometry={group.iloc[0]['antenna_geometry']} "
+                f"base_station_antennas:{group.iloc[0]['base_station_antennas']} "
+                f"user_equipment_antennas:{group.iloc[0]['user_equipment_antennas']} "
+                f"carrier_frequency:{group.iloc[0]['carrier_frequency']} "
+                f"antenna_spacing:{group.iloc[0]['antenna_spacing']} "
+                f"scenario={group.iloc[0]['scenario']} "
+                f"time_index:{group.iloc[0]['timeIndex']} "
+                f"tx_index:{group.iloc[0]['txIndex']}"
             )
-        ]
-        current_action_id += 1
-        training_data.append({"context": context, "actions": actions})
+
+            # Create a list of actions for the group
+            actions = []
+            for _, row in group.iterrows():
+                if target == "I":
+                    value = row["real"]
+                elif target == "Q":
+                    value = row["imag"]
+                else:
+                    raise ValueError("Target must be 'I' or 'Q'.")
+
+                actions.append((
+                    current_action_id,  # Unique action ID
+                    row['SNR'],         # Reward
+                    value               # Target value (I or Q)
+                ))
+                current_action_id += 1
+
+            # Append the context and actions to the training data
+            training_data.append({"context": context, "actions": actions})
+
+        except KeyError as e:
+            print(f"Missing column in data: {e}")
+        except Exception as e:
+            print(f"Error processing group {distance}: {e}")
 
     return training_data, current_action_id
 
@@ -141,25 +175,47 @@ def test_model(i_model, q_model, test_file):
     predicted_values_i = []
     predicted_values_q = []
 
-    # Iterate through each row in the test dataset
     for _, row in df.iterrows():
-        # Prepare the context
-        context = f"{row['antenna_geometry']} {row['base_station_antennas']} {row['user_equipment_antennas']} {row['carrier_frequency']} {row['antenna_spacing']} {row['scenario']} {row['distance_to_base_station']}"
+        try:
+            # Prepare the context
+            context = (
+                f"antenna_geometry={row['antenna_geometry']} "
+                f"base_station_antennas:{row['base_station_antennas']} "
+                f"user_equipment_antennas:{row['user_equipment_antennas']} "
+                f"carrier_frequency:{row['carrier_frequency']} "
+                f"antenna_spacing:{row['antenna_spacing']} "
+                f"scenario={row['scenario']} "
+                f"distance_to_base_station:{row['distance_to_base_station']} "
+                f"time_index:{row['Time Index']} "
+                f"tx_index:{row['Tx Index']}"
+            )
 
-        # True values
-        true_i = row["real"]
-        true_q = row["imag"]
-        true_values_i.append(true_i)
-        true_values_q.append(true_q)
+            # True values for comparison
+            true_values_i.append(row["real"])
+            true_values_q.append(row["imag"])
 
-        # Dummy actions for prediction (use action ID 1)
-        actions = [(1, 0.0)]
+            # Dynamic actions (e.g., based on row or predefined action space)
+            actions = [
+                (1, row["real"]),  # Example: action ID 1 corresponds to the real part
+                (2, row["imag"])   # Example: action ID 2 corresponds to the imaginary part
+            ]
 
-        # Predict I and Q
-        predicted_i = i_model.predict(context, actions, target="I")
-        predicted_q = q_model.predict(context, actions, target="Q")
-        predicted_values_i.append(predicted_i)
-        predicted_values_q.append(predicted_q)
+            # Predict I and Q
+            predicted_action_id_i = i_model.predict(context, actions, target="I")
+            predicted_action_id_q = q_model.predict(context, actions, target="Q")
+
+            # Match predicted action IDs back to their values
+            predicted_i = next(value for action_id, value in actions if action_id == predicted_action_id_i)
+            predicted_q = next(value for action_id, value in actions if action_id == predicted_action_id_q)
+
+            # Append predictions
+            predicted_values_i.append(predicted_i)
+            predicted_values_q.append(predicted_q)
+
+        except KeyError as e:
+            print(f"Missing column in data: {e}")
+        except Exception as e:
+            print(f"Error during prediction: {e}")
 
     # Calculate evaluation metrics
     metrics = {
@@ -179,11 +235,9 @@ def test_model(i_model, q_model, test_file):
         },
     }
 
-    # Generate plots
-    generate_plots(true_values_i, predicted_values_i, "I")
-    generate_plots(true_values_q, predicted_values_q, "Q")
-
     return metrics
+
+
 
 
 def generate_plots(true_values, predicted_values, target):
@@ -245,7 +299,7 @@ def main():
     # Train the models if they don't already exist
     if not os.path.exists(i_model_path) or not os.path.exists(q_model_path):
         # Iterate through all files
-        for part_num in range(1, 193):  # 1 to 192
+        for part_num in range(1, 10):  # 1 to 192
             file_path = f"src/communication_models/data/combined_csi_results_part_{part_num}.csv"
             if os.path.exists(file_path):
                 print(f"Processing {file_path}...")
@@ -267,7 +321,7 @@ def main():
         print(f"Q model saved to {q_model_path}")
 
     # Test the models
-    test_file = "src/communication_models/testbed_data.csv"
+    test_file = "src/communication_models/testbed_data_updated.csv"
     metrics = test_model(i_bandit_model, q_bandit_model, test_file)
 
     # Print metrics
