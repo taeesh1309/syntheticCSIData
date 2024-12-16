@@ -172,8 +172,9 @@ def train_gan(generator, discriminator, dataloader, optimizer_G, optimizer_D, ep
 def main():
     # File paths
     data_path = "src/communication_models/data"
-    test_file_path = "src/communication_models/test_combined_csi_results.csv"
+    test_file_path = "src/communication_models/testbed_data_updated.csv"
     model_path = "gan_model.pth"
+    results_file_path = "test_results.csv"
 
     # Dataset and Dataloader
     csv_files = [
@@ -193,13 +194,16 @@ def main():
 
     # Training or Loading the Model
     if os.path.exists(model_path):
+        print("Loading the model...")
         load_model(generator, discriminator, optimizer_G, optimizer_D, model_path)
     else:
-        train_gan(generator, discriminator, dataloader, optimizer_G, optimizer_D, epochs=500, loss_fn=loss_fn, model_path=model_path)
+        print("Training the model...")
+        train_gan(generator, discriminator, dataloader, optimizer_G, optimizer_D, epochs=10, loss_fn=loss_fn, model_path=model_path)
 
     # Testing the Model
     generator.eval()
     with torch.no_grad():
+        print("\nTesting the model...")
         test_data, test_targets = preprocess_test_data(
             test_file_path, dataset.encoder, dataset.scaler
         )
@@ -209,9 +213,19 @@ def main():
     mse = np.mean((predicted_csi.numpy() - test_targets.numpy()) ** 2)
     print(f"Mean Squared Error (MSE) on Test Data: {mse}")
 
-    print("\nSample Predictions vs Actual Values:")
-    for i in range(5):
-        print(f"Predicted: {predicted_csi[i].numpy()}, Actual: {test_targets[i].numpy()}")
+    # Save results to a CSV file
+    print("\nSaving test results to test_results.csv...")
+    predicted_csi_np = predicted_csi.numpy()
+    test_data_np = test_data.numpy()
+
+    # Combine inputs and predicted CSI values
+    results = np.hstack((test_data_np, predicted_csi_np))
+    column_names = [f"input_{i}" for i in range(test_data_np.shape[1])] + ["predicted_I", "predicted_Q"]
+    results_df = pd.DataFrame(results, columns=column_names)
+
+    # Save to CSV
+    results_df.to_csv(results_file_path, index=False)
+    print(f"Test results saved to {results_file_path}")
 
 
 if __name__ == "__main__":

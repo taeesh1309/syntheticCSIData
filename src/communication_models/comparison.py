@@ -273,7 +273,7 @@ def visualize_detailed_comparison(file1_path, file2_path, bins=50, interpolate=F
 # This will truncate the longer dataset to match the shorter one
 metrics = calculate_similarity_metrics(
     'src/communication_models/testbed_data.csv', 
-    'src/communication_models/simulation_data.csv'
+    'test_results.csv'
 )
 
 # Print results in a formatted way
@@ -283,7 +283,7 @@ for metric, value in metrics.items():
 # Create detailed visualization
 fig = visualize_detailed_comparison(
     'src/communication_models/testbed_data.csv', 
-    'src/communication_models/simulation_data.csv'
+    'test_results.csv'
 )
 plt.show()
 
